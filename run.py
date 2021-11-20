@@ -48,7 +48,7 @@ def save_model(model, epoch, score, config):
     torch.save(model.state_dict(), filepath)
 
 
-def train_one_epoch(model, config, optimizer, criterion, scheduler, dataloader, device, epoch):
+def train_one_epoch(model, config, optimizer, criterion, dataloader, device, epoch):
     model.train()
     dataset_size = 0
     running_loss = 0.0
@@ -76,8 +76,6 @@ def train_one_epoch(model, config, optimizer, criterion, scheduler, dataloader, 
             # zero the parameter gradients
             optimizer.zero_grad()
 
-            if scheduler is not None:
-                scheduler.step()
 
         running_loss += (loss.item() * batch_size)
         dataset_size += batch_size
@@ -133,21 +131,87 @@ def test_one_epoch(model, criterion, dataloader, device, epoch):
 
     return acc
 
+def AdamW_LLRD(model):
+    opt_parameters = []
+
+    init_lr = 2.5e-5 
+    head_lr = 2.6e-5
+    fc_lr = 3e-5
+    lr = init_lr
+
+    no_decay = ["bias","LayerNorm.bias","LayerNorm.weight"]
+    named_parameters = list(model.named_parameters())
+
+    #pooler
+    params_0 = [p for n,p in named_parameters if ("pooler" in n or "regressor" in n) 
+                and any(nd in n for nd in no_decay)]
+    params_1 = [p for n,p in named_parameters if ("pooler" in n or "regressor" in n)
+                and not any(nd in n for nd in no_decay)]
+    
+    head_params = {"params": params_0, "lr": head_lr, "weight_decay": 0.0}    
+    opt_parameters.append(head_params)
+        
+    head_params = {"params": params_1, "lr": head_lr, "weight_decay": 0.01}    
+    opt_parameters.append(head_params)
+
+    #12 hidden layers
+    for layer in range(11,-1,-1):        
+        params_0 = [p for n,p in named_parameters if f"encoder.layer.{layer}." in n 
+                    and any(nd in n for nd in no_decay)]
+        params_1 = [p for n,p in named_parameters if f"encoder.layer.{layer}." in n 
+                    and not any(nd in n for nd in no_decay)]
+        
+        layer_params = {"params": params_0, "lr": lr, "weight_decay": 0.0}
+        opt_parameters.append(layer_params)   
+                            
+        layer_params = {"params": params_1, "lr": lr, "weight_decay": 0.01}
+        opt_parameters.append(layer_params)       
+        
+        lr *= 0.9  
+
+    # embedding
+    params_0 = [p for n,p in named_parameters if "embeddings" in n 
+                and any(nd in n for nd in no_decay)]
+    params_1 = [p for n,p in named_parameters if "embeddings" in n
+                and not any(nd in n for nd in no_decay)]
+    
+    embed_params = {"params": params_0, "lr": lr, "weight_decay": 0.0} 
+    opt_parameters.append(embed_params)
+        
+    embed_params = {"params": params_1, "lr": lr, "weight_decay": 0.01} 
+    opt_parameters.append(embed_params) 
+
+    #加的全连接层
+    params_0 = [p for n,p in named_parameters if "fc" in n
+                and any(nd in n for nd in no_decay)]
+    params_1 = [p for n,p in named_parameters if "fc" in n
+                and not any(nd in n for nd in no_decay)]
+
+    fc_params = {"params": params_0, "lr": fc_lr, "weight_decay": 0.0} 
+    opt_parameters.append(fc_params)
+    fc_params = {"params": params_1, "lr": fc_lr, "weight_decay": 0.01} 
+    opt_parameters.append(fc_params)
+
+    return AdamW(opt_parameters,lr=init_lr)
+
+
+
+    
 
 @dataclass
 class Config:
     """train config"""
-    model_name: str = "bert-base-uncased"
+    model_name: str = "roberta-base"
     hidden_dim: int = 768
     max_length: int = 512
     dropout: float = 0.3
     num_labels: int = 1
     lr: float = 0.000003
-    epoch: int = 2
+    epoch: int = 11
     n_accumulate: int = 1
-    weight_decay: float = 1e-6
+    weight_decay: float = 0.01
     model_save_path: str = "./model_saved/"
-    debug: bool = True
+    debug: bool = False
 
 
 # train!
@@ -159,10 +223,14 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
     model = MyModel(config)
     criterion = nn.MarginRankingLoss(margin=0.5)
-    optimizer = AdamW(model.parameters(), lr=config.lr,
-                      weight_decay=config.weight_decay)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    scheduler = None
+
+    # optimizer = AdamW(model.parameters(), lr=config.lr,
+                    #   weight_decay=config.weight_decay)
+    optimizer = AdamW_LLRD(model)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer,start_factor=0.9,total_iters=10)
+
+
 
     # class MyDataset(Dataset):
     #     def __init__(self, df, tokenizer, max_length)
@@ -178,11 +246,17 @@ if __name__ == "__main__":
     best_epoch = 0
     for i in range(config.epoch):
         train_one_epoch(model, config, optimizer, criterion,
-                        scheduler, train_loader, device, i)
+                        train_loader, device, i)
         acc = test_one_epoch(model, criterion, test_loader, device, i)
         if best_acc <= acc:
             best_acc  = acc
             best_model = copy.deepcopy(model)
             best_epoch = i
+
+        if i%5 == 0 and i != 0:
+            save_model(model,i,acc,config)
+
+
+        scheduler.step()
 
     save_model(best_model, best_epoch, best_acc, config)
