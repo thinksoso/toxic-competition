@@ -1,5 +1,7 @@
 import time
+from torch._C import TreeView
 from tqdm import tqdm
+import pdb
 
 import torch
 from torch.utils.data import Dataset
@@ -14,13 +16,26 @@ from run import Config
 
 from transformers import AutoTokenizer, AutoModel, AdamW
 
+def rerank(comment_ids,scores):
+    _,new_comment_ids = zip(*sorted(zip(scores,comment_ids)))
+    rank = {}
+    for i, c in enumerate(new_comment_ids):
+        rank[c] = i
+
+    new_scores = []
+    for c in comment_ids:
+        new_scores.append(rank[c])
+    
+    return comment_ids,new_scores
+
+
 @torch.no_grad()
 def summit(model,data_loader,device):
     model.eval()
     comment_ids = []
     scores = []
     for i,data in enumerate(tqdm(data_loader)):
-        comment_id = data["comment_id"]
+        comment_id = data["comment_id"].tolist()
         text_mask = data["inputs_text_mask"].to(device,dtype=torch.long)
         text_id = data["inputs_text_ids"].to(device,dtype=torch.long)
         
@@ -29,7 +44,8 @@ def summit(model,data_loader,device):
 
         scores += score
         comment_ids += comment_id
-
+    
+    comment_ids,scores = rerank(comment_ids,scores)
     df = pd.DataFrame(list(zip(comment_ids,scores)),columns=["comment_id","score"])
     return df
 
@@ -49,5 +65,5 @@ if __name__ == "__main__":
     result = summit(model,dataloader,device)
 
     timestr = time.strftime("%Y%m%d-%H%M%S")
-    save_path = timestr+"-summit.csv"
-    result.to_csv(save_path)
+    save_path = "submission/"+timestr+"-summit.csv"
+    result.to_csv(save_path,index=False)
