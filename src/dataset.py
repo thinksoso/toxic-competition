@@ -45,3 +45,37 @@ class MyDataset(Dataset):
             'less_toxic_mask': torch.tensor(less_toxic_mask, dtype=torch.long),
             'target': torch.tensor(target, dtype=torch.long)
         }
+
+
+class SubmitDataset(Dataset):
+    def __init__(self, df, tokenizer, max_length):
+        self.df = df
+        self.max_len = max_length
+        self.tokenizer = tokenizer
+        self.text = df['text'].values
+        self.comment_id = df['comment_id'].values
+        
+    def __len__(self):
+        return len(self.df)
+    
+    def __getitem__(self, index):
+        text = self.text[index]
+        comment_id = self.comment_id[index]
+        inputs_text = self.tokenizer.encode_plus(
+                                text,
+                                truncation=True,
+                                add_special_tokens=True,
+                                max_length=self.max_len,
+                                padding='max_length'
+                            )
+        
+        inputs_text_ids = inputs_text['input_ids']
+        inputs_text_mask = inputs_text['attention_mask']
+        
+        
+        
+        return {
+            'inputs_text_ids': torch.tensor(inputs_text_ids, dtype=torch.long),
+            'inputs_text_mask': torch.tensor(inputs_text_mask, dtype=torch.long),
+            'comment_id': comment_id
+        }
