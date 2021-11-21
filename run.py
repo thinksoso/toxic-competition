@@ -32,10 +32,10 @@ def read_data(debug):
     train_data = df.sample(frac=0.9, random_state=200)
     test_data = df.drop(train_data.index)
 
-    #开启debug模式，只会取少量数据测试
+    # 开启debug模式，只会取少量数据测试
     if debug:
-        train_data = train_data.sample(frac=0.001,random_state=200)
-        test_data = test_data.sample(frac=0.001,random_state=200)
+        train_data = train_data.sample(frac=0.001, random_state=200)
+        test_data = test_data.sample(frac=0.001, random_state=200)
     print(train_data.shape)
     print(test_data.shape)
     return train_data, test_data
@@ -75,7 +75,6 @@ def train_one_epoch(model, config, optimizer, criterion, dataloader, device, epo
 
             # zero the parameter gradients
             optimizer.zero_grad()
-
 
         running_loss += (loss.item() * batch_size)
         dataset_size += batch_size
@@ -131,72 +130,70 @@ def test_one_epoch(model, criterion, dataloader, device, epoch):
 
     return acc
 
+
 def AdamW_LLRD(model):
     opt_parameters = []
 
-    init_lr = 2.5e-5 
-    head_lr = 2.6e-5
-    fc_lr = 3e-5
+    init_lr = 5e-6
+    head_lr = 5e-6
+    fc_lr = 1e-5
     lr = init_lr
 
-    no_decay = ["bias","LayerNorm.bias","LayerNorm.weight"]
+    no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
     named_parameters = list(model.named_parameters())
 
-    #pooler
-    params_0 = [p for n,p in named_parameters if ("pooler" in n or "regressor" in n) 
+    # pooler
+    params_0 = [p for n, p in named_parameters if ("pooler" in n or "regressor" in n)
                 and any(nd in n for nd in no_decay)]
-    params_1 = [p for n,p in named_parameters if ("pooler" in n or "regressor" in n)
+    params_1 = [p for n, p in named_parameters if ("pooler" in n or "regressor" in n)
                 and not any(nd in n for nd in no_decay)]
-    
-    head_params = {"params": params_0, "lr": head_lr, "weight_decay": 0.0}    
-    opt_parameters.append(head_params)
-        
-    head_params = {"params": params_1, "lr": head_lr, "weight_decay": 0.01}    
+
+    head_params = {"params": params_0, "lr": head_lr, "weight_decay": 0.0}
     opt_parameters.append(head_params)
 
-    #12 hidden layers
-    for layer in range(11,-1,-1):        
-        params_0 = [p for n,p in named_parameters if f"encoder.layer.{layer}." in n 
+    head_params = {"params": params_1, "lr": head_lr, "weight_decay": 0.01}
+    opt_parameters.append(head_params)
+
+    # 12 hidden layers
+    for layer in range(11, -1, -1):
+        params_0 = [p for n, p in named_parameters if f"encoder.layer.{layer}." in n
                     and any(nd in n for nd in no_decay)]
-        params_1 = [p for n,p in named_parameters if f"encoder.layer.{layer}." in n 
+        params_1 = [p for n, p in named_parameters if f"encoder.layer.{layer}." in n
                     and not any(nd in n for nd in no_decay)]
-        
+
         layer_params = {"params": params_0, "lr": lr, "weight_decay": 0.0}
-        opt_parameters.append(layer_params)   
-                            
+        opt_parameters.append(layer_params)
+
         layer_params = {"params": params_1, "lr": lr, "weight_decay": 0.01}
-        opt_parameters.append(layer_params)       
-        
-        lr *= 0.9  
+        opt_parameters.append(layer_params)
+
+        lr *= 0.9
 
     # embedding
-    params_0 = [p for n,p in named_parameters if "embeddings" in n 
+    params_0 = [p for n, p in named_parameters if "embeddings" in n
                 and any(nd in n for nd in no_decay)]
-    params_1 = [p for n,p in named_parameters if "embeddings" in n
+    params_1 = [p for n, p in named_parameters if "embeddings" in n
                 and not any(nd in n for nd in no_decay)]
-    
-    embed_params = {"params": params_0, "lr": lr, "weight_decay": 0.0} 
+
+    embed_params = {"params": params_0, "lr": lr, "weight_decay": 0.0}
     opt_parameters.append(embed_params)
-        
-    embed_params = {"params": params_1, "lr": lr, "weight_decay": 0.01} 
-    opt_parameters.append(embed_params) 
 
-    #加的全连接层
-    params_0 = [p for n,p in named_parameters if "fc" in n
+    embed_params = {"params": params_1, "lr": lr, "weight_decay": 0.01}
+    opt_parameters.append(embed_params)
+
+    # 加的全连接层
+    params_0 = [p for n, p in named_parameters if "fc" in n
                 and any(nd in n for nd in no_decay)]
-    params_1 = [p for n,p in named_parameters if "fc" in n
+    params_1 = [p for n, p in named_parameters if "fc" in n
                 and not any(nd in n for nd in no_decay)]
 
-    fc_params = {"params": params_0, "lr": fc_lr, "weight_decay": 0.0} 
+    fc_params = {"params": params_0, "lr": fc_lr, "weight_decay": 0.0}
     opt_parameters.append(fc_params)
-    fc_params = {"params": params_1, "lr": fc_lr, "weight_decay": 0.01} 
+    fc_params = {"params": params_1, "lr": fc_lr, "weight_decay": 0.01}
     opt_parameters.append(fc_params)
 
-    return AdamW(opt_parameters,lr=init_lr)
+    return AdamW(opt_parameters, lr=init_lr)
 
-
-
-    
 
 @dataclass
 class Config:
@@ -204,10 +201,10 @@ class Config:
     model_name: str = "roberta-base"
     hidden_dim: int = 768
     max_length: int = 512
-    dropout: float = 0.3
+    dropout: float = 0.5
     num_labels: int = 1
     lr: float = 0.000003
-    epoch: int = 11
+    epoch: int = 16
     n_accumulate: int = 1
     weight_decay: float = 0.01
     model_save_path: str = "./model_saved/"
@@ -226,18 +223,17 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # optimizer = AdamW(model.parameters(), lr=config.lr,
-                    #   weight_decay=config.weight_decay)
+    #   weight_decay=config.weight_decay)
     optimizer = AdamW_LLRD(model)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer,start_factor=0.9,total_iters=10)
-
-
+    scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.5, total_iters=5)
 
     # class MyDataset(Dataset):
     #     def __init__(self, df, tokenizer, max_length)
     train_loader = DataLoader(MyDataset(
-        train_data, tokenizer, config.max_length), batch_size=16, shuffle=True)
+        train_data, tokenizer, config.max_length), batch_size=8, shuffle=True)
     test_loader = DataLoader(
-        MyDataset(test_data, tokenizer, config.max_length), batch_size=16)
+        MyDataset(test_data, tokenizer, config.max_length), batch_size=8)
 
     model.to(device)
 
@@ -249,13 +245,12 @@ if __name__ == "__main__":
                         train_loader, device, i)
         acc = test_one_epoch(model, criterion, test_loader, device, i)
         if best_acc <= acc:
-            best_acc  = acc
+            best_acc = acc
             best_model = copy.deepcopy(model)
             best_epoch = i
 
-        if i%5 == 0 and i != 0:
-            save_model(model,i,acc,config)
-
+        if i % 5 == 0 and i != 0:
+            save_model(model, i, acc, config)
 
         scheduler.step()
 
