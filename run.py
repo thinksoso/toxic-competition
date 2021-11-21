@@ -1,3 +1,5 @@
+import wandb
+
 from dataclasses import dataclass
 import copy
 import pdb
@@ -34,8 +36,8 @@ def read_data(debug):
 
     # 开启debug模式，只会取少量数据测试
     if debug:
-        train_data = train_data.sample(frac=0.001, random_state=200)
-        test_data = test_data.sample(frac=0.001, random_state=200)
+        train_data = train_data.sample(frac=0.01, random_state=200)
+        test_data = test_data.sample(frac=0.01, random_state=200)
     print(train_data.shape)
     print(test_data.shape)
     return train_data, test_data
@@ -75,6 +77,8 @@ def train_one_epoch(model, config, optimizer, criterion, dataloader, device, epo
 
             # zero the parameter gradients
             optimizer.zero_grad()
+        
+        wandb.log({"loss":loss.item()})
 
         running_loss += (loss.item() * batch_size)
         dataset_size += batch_size
@@ -208,7 +212,7 @@ class Config:
     n_accumulate: int = 1
     weight_decay: float = 0.01
     model_save_path: str = "./model_saved/"
-    debug: bool = False
+    debug: bool = True
 
 
 # train!
@@ -221,6 +225,15 @@ if __name__ == "__main__":
     model = MyModel(config)
     criterion = nn.MarginRankingLoss(margin=0.5)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # wandb
+    wandb.init(project="toxic",entity="thinksoso")
+    wandb.config = {
+        "learning_rate": 5e-6,
+        "epochs":10,
+        "batch_size":8
+    }
+    wandb.watch(model)
 
     # optimizer = AdamW(model.parameters(), lr=config.lr,
     #   weight_decay=config.weight_decay)
@@ -244,6 +257,9 @@ if __name__ == "__main__":
         train_one_epoch(model, config, optimizer, criterion,
                         train_loader, device, i)
         acc = test_one_epoch(model, criterion, test_loader, device, i)
+
+        wandb.log({"loss":acc})
+
         if best_acc <= acc:
             best_acc = acc
             best_model = copy.deepcopy(model)
